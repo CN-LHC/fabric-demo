@@ -1,0 +1,382 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <title>fabricjs 自定义 F 型珠宝元素</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.0/fabric.min.js"></script>
+    <style>
+      canvas {
+        border: 1px solid #ccc;
+      }
+      body {
+        font-family: 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+        margin: 12px;
+      }
+      p {
+        color: #555;
+        font-size: 13px;
+      }
+    </style>
+  </head>
+  <body>
+    <p>
+      参考「fabricjs-自定义圆角矩形元素-终极版」分层写法：Utils / Renderer / ControlHandlers /
+      <code>fabric.util.createClass</code>。几何与「F型珠宝30×25+40.svg」一致。
+    </p>
+    <div id="canvas-container">
+      <canvas id="canvas" width="800" height="800"></canvas>
+    </div>
+
+    <script>
+      // 工具函数类（几何常量、等比尺寸约束）
+      class FJewelryUtils {
+        static MIN_SIZE = 16
+        static VIEWBOX = { width: 85.04, height: 184.25 }
+
+        static OUTLINE_PATHS = [
+          'M48.19,0h31.18c3.12,0,5.67,2.55,5.67,5.67V65.2c0,3.12-2.55,5.67-5.67,5.67H48.19c-2.52,0-4.67-1.66-5.4-3.94c-0.04-0.12-0.14-0.2-0.27-0.2c-0.13,0-0.23,0.08-0.27,0.2c-0.73,2.28-2.88,3.94-5.4,3.94h-8.5c-1.56,0-2.83,1.27-2.83,2.83v4.25c0,1.56,1.27,2.83,2.83,2.83h4.25c0.78,0,1.42,0.64,1.42,1.42v82.2c0,0.78-0.64,1.42-1.42,1.42h-4.25c-1.56,0-2.83,1.27-2.83,2.83v15.59h-8.5V73.7c0-1.56-1.27-2.83-2.83-2.83h-8.5C2.55,70.87,0,68.32,0,65.2V5.67C0,2.55,2.55,0,5.67,0h31.18c2.52,0,4.67,1.66,5.4,3.94c0.04,0.12,0.14,0.2,0.27,0.2c0.13,0,0.23-0.08,0.27-0.2C43.52,1.66,45.67,0,48.19,0z'
+        ]
+
+        static TICK_LINES = [
+          [25.51, 164.41, 25.51, 159.45],
+          [25.51, 158.03, 25.51, 152.36],
+          [25.51, 150.95, 25.51, 145.28],
+          [25.51, 143.86, 25.51, 138.19],
+          [25.51, 136.77, 25.51, 131.1],
+          [25.51, 129.69, 25.51, 124.02],
+          [25.51, 122.6, 25.51, 116.93],
+          [25.51, 115.51, 25.51, 109.84],
+          [25.51, 108.42, 25.51, 102.76],
+          [25.51, 101.34, 25.51, 95.67],
+          [25.51, 94.25, 25.51, 88.58],
+          [25.51, 87.16, 25.51, 82.2],
+          [42.52, 65.31, 42.52, 60.95],
+          [42.52, 59.53, 42.52, 53.86],
+          [42.52, 52.44, 42.52, 46.77],
+          [42.52, 45.35, 42.52, 39.69],
+          [42.52, 38.27, 42.52, 32.6],
+          [42.52, 31.18, 42.52, 25.51],
+          [42.52, 24.09, 42.52, 18.42],
+          [42.52, 17.01, 42.52, 11.34],
+          [42.52, 9.92, 42.52, 5.56]
+        ]
+
+        static getAspect() {
+          const vb = FJewelryUtils.VIEWBOX
+          return vb.width / vb.height
+        }
+
+        /**
+         * 在不超过 maxW、maxH 的前提下，保持 viewBox 宽高比。
+         * 用于初始化与右下角拖拽。
+         */
+        static clampToAspectBox(maxW, maxH) {
+          const vb = FJewelryUtils.VIEWBOX
+          const ar = vb.width / vb.height
+          var w = Math.max(maxW, FJewelryUtils.MIN_SIZE)
+          var h = w / ar
+          var maxHClamped = Math.max(maxH, FJewelryUtils.MIN_SIZE)
+          if (h > maxHClamped) {
+            h = maxHClamped
+            w = h * ar
+          }
+          w = Math.max(w, FJewelryUtils.MIN_SIZE)
+          h = Math.max(h, FJewelryUtils.MIN_SIZE)
+          return { width: w, height: h }
+        }
+
+        /** 已知目标宽度，反算高度（等比） */
+        static sizeFromWidth(width) {
+          var w = Math.max(width, FJewelryUtils.MIN_SIZE)
+          var h = w / FJewelryUtils.getAspect()
+          return { width: w, height: Math.max(h, FJewelryUtils.MIN_SIZE) }
+        }
+
+        /** 已知目标高度，反算宽度（等比） */
+        static sizeFromHeight(height) {
+          var h = Math.max(height, FJewelryUtils.MIN_SIZE)
+          var w = h * FJewelryUtils.getAspect()
+          return { width: Math.max(w, FJewelryUtils.MIN_SIZE), height: h }
+        }
+      }
+
+      // 渲染器类（Path2D + 刻度线）
+      class FJewelryRenderer {
+        static _paths = null
+        static outlinePath2D() {
+          if (!FJewelryRenderer._paths) {
+            FJewelryRenderer._paths = FJewelryUtils.OUTLINE_PATHS.map(function (d) {
+              return new Path2D(d)
+            })
+          }
+          return FJewelryRenderer._paths
+        }
+
+        /**
+         * @param {CanvasRenderingContext2D} ctx
+         * @param {fabric.FJewelryShape} target
+         * @param {number} w 外接宽（与 RoundRect 一致用 max(width, minSize)）
+         * @param {number} h 外接高
+         */
+        static render(ctx, target, w, h) {
+          const vb = FJewelryUtils.VIEWBOX
+          ctx.save()
+          ctx.translate(-w / 2, -h / 2)
+          ctx.scale(w / vb.width, h / vb.height)
+
+          ctx.lineJoin = 'round'
+          ctx.lineCap = 'round'
+
+          for (var i = 0; i < FJewelryRenderer.outlinePath2D().length; i++) {
+            var p = FJewelryRenderer.outlinePath2D()[i]
+            if (target.fill && target.fill !== '') {
+              ctx.fillStyle = target.fill
+              ctx.fill(p)
+            }
+            ctx.strokeStyle = target.stroke || '#000'
+            var sw = typeof target.strokeWidth === 'number' ? target.strokeWidth : 0.35
+            ctx.lineWidth = sw
+            ctx.stroke(p)
+          }
+
+          if (target.ticks) {
+            ctx.beginPath()
+            for (var j = 0; j < FJewelryUtils.TICK_LINES.length; j++) {
+              var seg = FJewelryUtils.TICK_LINES[j]
+              ctx.moveTo(seg[0], seg[1])
+              ctx.lineTo(seg[2], seg[3])
+            }
+            ctx.strokeStyle = target.stroke || '#000'
+            ctx.lineWidth = typeof target.strokeWidth === 'number' ? target.strokeWidth : 0.35
+            ctx.stroke()
+          }
+
+          ctx.restore()
+        }
+      }
+
+      // 控制点处理器类（与终极版相同的 createResizeHandler + toLocalPoint）
+      class FJewelryControlHandlers {
+        static createResizeHandler(updateFunction) {
+          return function (eventData, transform, x, y) {
+            var target = transform.target
+            var canvas = target.canvas
+            var local = target.toLocalPoint(new fabric.Point(x, y), 'center', 'center')
+            var result = updateFunction(target, local)
+            if (result) {
+              target.setCoords()
+              canvas.requestRenderAll()
+            }
+            return result
+          }
+        }
+
+        /** 右下角：在指针框内取最大等比矩形 */
+        static bottomRight(target, local) {
+          var newW = local.x + target.width / 2
+          var newH = local.y + target.height / 2
+          var sized = FJewelryUtils.clampToAspectBox(newW, newH)
+          target.set({
+            width: sized.width,
+            height: sized.height,
+            scaleX: 1,
+            scaleY: 1
+          })
+          return true
+        }
+
+        /** 右边：改宽，高随比例 */
+        static right(target, local) {
+          var newW = local.x + target.width / 2
+          var sized = FJewelryUtils.sizeFromWidth(newW)
+          target.set({ width: sized.width, height: sized.height, scaleX: 1, scaleY: 1 })
+          return true
+        }
+
+        /** 左边：改宽并平移 */
+        static left(target, local) {
+          var newW = target.width / 2 - local.x
+          var sized = FJewelryUtils.sizeFromWidth(newW)
+          var deltaW = sized.width - target.width
+          var angle = (target.angle * Math.PI) / 180
+          var cos = Math.cos(angle)
+          var sin = Math.sin(angle)
+          var offsetX = -deltaW * cos
+          var offsetY = -deltaW * sin
+          target.set({
+            width: sized.width,
+            height: sized.height,
+            left: target.left + offsetX,
+            top: target.top + offsetY,
+            scaleX: 1,
+            scaleY: 1
+          })
+          return true
+        }
+
+        /** 上边：改高并平移 */
+        static top(target, local) {
+          var newH = target.height / 2 - local.y
+          var sized = FJewelryUtils.sizeFromHeight(newH)
+          var deltaH = sized.height - target.height
+          var angle = (target.angle * Math.PI) / 180
+          var cos = Math.cos(angle)
+          var sin = Math.sin(angle)
+          var offsetX = deltaH * sin
+          var offsetY = -deltaH * cos
+          target.set({
+            width: sized.width,
+            height: sized.height,
+            left: target.left + offsetX,
+            top: target.top + offsetY,
+            scaleY: 1,
+            scaleX: 1
+          })
+          return true
+        }
+
+        /** 下边 */
+        static bottom(target, local) {
+          var newH = local.y + target.height / 2
+          var sized = FJewelryUtils.sizeFromHeight(newH)
+          target.set({ width: sized.width, height: sized.height, scaleY: 1, scaleX: 1 })
+          return true
+        }
+      }
+
+      // 主类：继承 fabric.Object，自定义 _render 与五向控制点
+      var FJewelryShape = fabric.util.createClass(fabric.Object, {
+        type: 'f-jewelry',
+        minSize: FJewelryUtils.MIN_SIZE,
+
+        initialize: function (options) {
+          options || (options = {})
+          this.callSuper('initialize', options)
+
+          var vb = FJewelryUtils.VIEWBOX
+          var initW = options.width != null ? options.width : vb.width * 1.5
+          var initH = options.height != null ? options.height : vb.height * 1.5
+          var sized = FJewelryUtils.clampToAspectBox(initW, initH)
+
+          this.ticks = options.ticks !== false
+          if (options.minSize != null) {
+            this.minSize = options.minSize
+          }
+
+          this.set({
+            width: sized.width,
+            height: sized.height,
+            fill: options.fill != null ? options.fill : '',
+            stroke: options.stroke != null ? options.stroke : '#18181b',
+            strokeWidth: options.strokeWidth != null ? options.strokeWidth : 0.35,
+            lockScalingX: true,
+            lockScalingY: true,
+            objectCaching: false,
+            hasControls: options.hasControls != null ? options.hasControls : false,
+            hasBorders: options.hasBorders != null ? options.hasBorders : false
+          })
+
+          this._initCustomControls()
+        },
+
+        _render: function (ctx) {
+          var w0 = Math.max(this.width, this.minSize)
+          var h0 = Math.max(this.height, this.minSize)
+          var box = FJewelryUtils.clampToAspectBox(w0, h0)
+          FJewelryRenderer.render(ctx, this, box.width, box.height)
+        },
+
+        _initCustomControls: function () {
+          this.controls.br = new fabric.Control({
+            x: 0.5,
+            y: 0.5,
+            cursorStyle: 'nwse-resize',
+            actionHandler: FJewelryControlHandlers.createResizeHandler(
+              FJewelryControlHandlers.bottomRight
+            )
+          })
+
+          this.controls.mr = new fabric.Control({
+            x: 0.5,
+            y: 0,
+            cursorStyle: 'ew-resize',
+            actionHandler: FJewelryControlHandlers.createResizeHandler(
+              FJewelryControlHandlers.right
+            )
+          })
+
+          this.controls.ml = new fabric.Control({
+            x: -0.5,
+            y: 0,
+            cursorStyle: 'ew-resize',
+            actionHandler: FJewelryControlHandlers.createResizeHandler(FJewelryControlHandlers.left)
+          })
+
+          this.controls.mt = new fabric.Control({
+            x: 0,
+            y: -0.5,
+            cursorStyle: 'ns-resize',
+            actionHandler: FJewelryControlHandlers.createResizeHandler(FJewelryControlHandlers.top)
+          })
+
+          this.controls.mb = new fabric.Control({
+            x: 0,
+            y: 0.5,
+            cursorStyle: 'ns-resize',
+            actionHandler: FJewelryControlHandlers.createResizeHandler(
+              FJewelryControlHandlers.bottom
+            )
+          })
+        },
+
+        toObject: function (additionalProps) {
+          return this.callSuper('toObject', ['ticks', 'minSize'].concat(additionalProps || []))
+        }
+      })
+
+      fabric.FJewelryShape = FJewelryShape
+
+      fabric.FJewelryShape.fromObject = function (object, callback) {
+        callback(new fabric.FJewelryShape(object))
+      }
+
+      var canvas = new fabric.Canvas('canvas', { width: 800, height: 800 })
+
+      // var f1 = new fabric.FJewelryShape({
+      //   left: 220,
+      //   top: 180,
+      //   angle: 0,
+      //   stroke: '#1d4ed8',
+      //   strokeWidth: 0.45,
+      //   ticks: true
+      // })
+      // canvas.add(f1)
+
+      // var f2 = new fabric.FJewelryShape({
+      //   left: 520,
+      //   top: 260,
+      //   width: FJewelryUtils.VIEWBOX.width * 2,
+      //   height: FJewelryUtils.VIEWBOX.height * 2,
+      //   angle: 28,
+      //   stroke: '#15803d',
+      //   strokeWidth: 0.5,
+      //   ticks: true
+      // })
+      // canvas.add(f2)
+
+      var f3 = new fabric.FJewelryShape({
+        left: 300,
+        top: 200,
+        width: FJewelryUtils.VIEWBOX.width * 2,
+        height: FJewelryUtils.VIEWBOX.height * 2,
+        angle: 0,
+        stroke: '#a21caf',
+        fill: 'rgba(250, 232, 255, 0.35)',
+        ticks: true,
+        hasControls: true,
+        hasBorders: true
+      })
+      canvas.add(f3)
+    </script>
+  </body>
+</html>

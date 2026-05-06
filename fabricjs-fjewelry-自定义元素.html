@@ -28,14 +28,23 @@
     </div>
 
     <script>
-      // 工具函数类（几何常量、等比尺寸约束）
+      // 工具函数类（几何常量、尺寸约束）
       class FJewelryUtils {
         static MIN_SIZE = 16
         static VIEWBOX = { width: 85.04, height: 184.25 }
-
-        static OUTLINE_PATHS = [
-          'M48.19,0h31.18c3.12,0,5.67,2.55,5.67,5.67V65.2c0,3.12-2.55,5.67-5.67,5.67H48.19c-2.52,0-4.67-1.66-5.4-3.94c-0.04-0.12-0.14-0.2-0.27-0.2c-0.13,0-0.23,0.08-0.27,0.2c-0.73,2.28-2.88,3.94-5.4,3.94h-8.5c-1.56,0-2.83,1.27-2.83,2.83v4.25c0,1.56,1.27,2.83,2.83,2.83h4.25c0.78,0,1.42,0.64,1.42,1.42v82.2c0,0.78-0.64,1.42-1.42,1.42h-4.25c-1.56,0-2.83,1.27-2.83,2.83v15.59h-8.5V73.7c0-1.56-1.27-2.83-2.83-2.83h-8.5C2.55,70.87,0,68.32,0,65.2V5.67C0,2.55,2.55,0,5.67,0h31.18c2.52,0,4.67,1.66,5.4,3.94c0.04,0.12,0.14,0.2,0.27,0.2c0.13,0,0.23-0.08,0.27-0.2C43.52,1.66,45.67,0,48.19,0z'
-        ]
+        static TOP_HEIGHT = 70.87
+        static STEM_X = 17.01
+        static STEM_WIDTH = 17.01
+        static STEM_FOOT_WIDTH = 8.5
+        static STEM_FOOT_HEIGHT = 15.59
+        static STEM_SHOULDER_DROP = 9.92
+        static MIN_TOP_HEIGHT = 24
+        static MIN_STEM_WIDTH = 10
+        static MIN_STEM_HEIGHT = 24
+        static MIN_STEM_SLOT_HEIGHT = 12
+        static CONTROL_MODE_CUSTOM = 'custom'
+        static CONTROL_MODE_NATIVE = 'native'
+        static CONTROL_EDGE_OFFSET = 0 // 0 表示不偏移，7 表示偏移 7px
 
         static TICK_LINES = [
           [25.51, 164.41, 25.51, 159.45],
@@ -61,107 +70,406 @@
           [42.52, 9.92, 42.52, 5.56]
         ]
 
-        static getAspect() {
-          const vb = FJewelryUtils.VIEWBOX
-          return vb.width / vb.height
+        static clamp(value, min, max) {
+          if (max < min) return min
+          return Math.min(Math.max(value, min), max)
         }
 
-        /**
-         * 在不超过 maxW、maxH 的前提下，保持 viewBox 宽高比。
-         * 用于初始化与右下角拖拽。
-         */
-        static clampToAspectBox(maxW, maxH) {
-          const vb = FJewelryUtils.VIEWBOX
-          const ar = vb.width / vb.height
-          var w = Math.max(maxW, FJewelryUtils.MIN_SIZE)
-          var h = w / ar
-          var maxHClamped = Math.max(maxH, FJewelryUtils.MIN_SIZE)
-          if (h > maxHClamped) {
-            h = maxHClamped
-            w = h * ar
+        static normalizeGeometry(target) {
+          target.topWidth = Math.max(target.topWidth, FJewelryUtils.MIN_SIZE)
+          target.topHeight = Math.max(target.topHeight, FJewelryUtils.MIN_TOP_HEIGHT)
+          target.stemWidth = Math.max(target.stemWidth, FJewelryUtils.MIN_STEM_WIDTH)
+          target.stemHeight = Math.max(target.stemHeight, FJewelryUtils.MIN_STEM_HEIGHT)
+
+          if (target.stemWidth > target.topWidth) {
+            target.stemWidth = target.topWidth
           }
-          w = Math.max(w, FJewelryUtils.MIN_SIZE)
-          h = Math.max(h, FJewelryUtils.MIN_SIZE)
-          return { width: w, height: h }
+          target.stemX = FJewelryUtils.clamp(target.stemX, 0, target.topWidth - target.stemWidth)
+          FJewelryUtils.normalizeStemSlot(target)
+
+          target.set({
+            width: target.topWidth,
+            height: target.topHeight + target.stemHeight,
+            scaleX: 1,
+            scaleY: 1
+          })
         }
 
-        /** 已知目标宽度，反算高度（等比） */
-        static sizeFromWidth(width) {
-          var w = Math.max(width, FJewelryUtils.MIN_SIZE)
-          var h = w / FJewelryUtils.getAspect()
-          return { width: w, height: Math.max(h, FJewelryUtils.MIN_SIZE) }
+        static initializeGeometry(target, options, initW, initH) {
+          var vb = FJewelryUtils.VIEWBOX
+          var sx = initW / vb.width
+          var sy = initH / vb.height
+          target.topWidth = options.topWidth != null ? options.topWidth : initW
+          target.topHeight =
+            options.topHeight != null ? options.topHeight : FJewelryUtils.TOP_HEIGHT * sy
+          target.stemX = options.stemX != null ? options.stemX : FJewelryUtils.STEM_X * sx
+          target.stemWidth =
+            options.stemWidth != null ? options.stemWidth : FJewelryUtils.STEM_WIDTH * sx
+          target.stemHeight =
+            options.stemHeight != null
+              ? options.stemHeight
+              : (vb.height - FJewelryUtils.TOP_HEIGHT) * sy
+          var metrics = FJewelryUtils.getStemVerticalMetrics(target.stemHeight)
+          target.stemSlotTopY =
+            options.stemSlotTopY != null ? options.stemSlotTopY : metrics.stemStartY
+          target.stemSlotBottomY =
+            options.stemSlotBottomY != null ? options.stemSlotBottomY : metrics.footShelfY
+          FJewelryUtils.normalizeGeometry(target)
         }
 
-        /** 已知目标高度，反算宽度（等比） */
-        static sizeFromHeight(height) {
-          var h = Math.max(height, FJewelryUtils.MIN_SIZE)
-          var w = h * FJewelryUtils.getAspect()
-          return { width: Math.max(w, FJewelryUtils.MIN_SIZE), height: h }
+        static localTopLeft(target) {
+          return {
+            x: -target.width / 2,
+            y: -target.height / 2
+          }
+        }
+
+        static moveByLocalVector(target, dx, dy) {
+          var angle = (target.angle * Math.PI) / 180
+          var cos = Math.cos(angle)
+          var sin = Math.sin(angle)
+          target.set({
+            left: target.left + dx * cos - dy * sin,
+            top: target.top + dx * sin + dy * cos
+          })
+        }
+
+        static normalizeControlMode(mode) {
+          return mode === FJewelryUtils.CONTROL_MODE_NATIVE
+            ? FJewelryUtils.CONTROL_MODE_NATIVE
+            : FJewelryUtils.CONTROL_MODE_CUSTOM
+        }
+
+        static getStemFootWidth(stemWidth) {
+          var stemScaleX = stemWidth / FJewelryUtils.STEM_WIDTH
+          return FJewelryUtils.clamp(
+            Math.min(FJewelryUtils.STEM_FOOT_WIDTH * stemScaleX, stemWidth * 0.75),
+            0,
+            stemWidth
+          )
+        }
+
+        static isStemOnRight(target) {
+          return target.stemX + target.stemWidth / 2 > target.topWidth / 2
+        }
+
+        static getStemVerticalMetrics(stemHeight) {
+          var baseStemHeight = FJewelryUtils.VIEWBOX.height - FJewelryUtils.TOP_HEIGHT
+          var stemScaleY = stemHeight / baseStemHeight
+          var shoulderDrop = Math.min(
+            FJewelryUtils.STEM_SHOULDER_DROP * stemScaleY,
+            stemHeight * 0.18
+          )
+          var shoulderInnerDrop = Math.min(2.83 * stemScaleY, shoulderDrop / 2)
+          var stemStartY = shoulderDrop + Math.min(1.42 * stemScaleY, shoulderDrop / 3)
+          var footHeight = Math.min(FJewelryUtils.STEM_FOOT_HEIGHT * stemScaleY, stemHeight * 0.45)
+          var footNotchHeight = Math.min(4.25 * stemScaleY, stemHeight * 0.12)
+          return {
+            shoulderDrop: shoulderDrop,
+            shoulderInnerDrop: shoulderInnerDrop,
+            stemStartY: stemStartY,
+            footHeight: footHeight,
+            footNotchHeight: footNotchHeight,
+            footTopY: stemHeight - footHeight,
+            footShelfY: stemHeight - footHeight - footNotchHeight
+          }
+        }
+
+        static normalizeStemSlot(target) {
+          var metrics = FJewelryUtils.getStemVerticalMetrics(target.stemHeight)
+          var minTop = Math.max(metrics.shoulderDrop, 0)
+          var maxBottom = Math.max(metrics.footTopY, minTop + FJewelryUtils.MIN_STEM_SLOT_HEIGHT)
+
+          if (typeof target.stemSlotTopY !== 'number') {
+            target.stemSlotTopY = metrics.stemStartY
+          }
+          if (typeof target.stemSlotBottomY !== 'number') {
+            target.stemSlotBottomY = metrics.footShelfY
+          }
+
+          target.stemSlotBottomY = FJewelryUtils.clamp(
+            target.stemSlotBottomY,
+            minTop + FJewelryUtils.MIN_STEM_SLOT_HEIGHT,
+            maxBottom
+          )
+          target.stemSlotTopY = FJewelryUtils.clamp(
+            target.stemSlotTopY,
+            minTop,
+            target.stemSlotBottomY - FJewelryUtils.MIN_STEM_SLOT_HEIGHT
+          )
+          target.stemSlotBottomY = FJewelryUtils.clamp(
+            target.stemSlotBottomY,
+            target.stemSlotTopY + FJewelryUtils.MIN_STEM_SLOT_HEIGHT,
+            maxBottom
+          )
         }
       }
 
-      // 渲染器类（Path2D + 刻度线）
+      // 渲染器类（参数化 F 形轮廓 + 刻度线）
       class FJewelryRenderer {
-        static _paths = null
-        static outlinePath2D() {
-          if (!FJewelryRenderer._paths) {
-            FJewelryRenderer._paths = FJewelryUtils.OUTLINE_PATHS.map(function (d) {
-              return new Path2D(d)
-            })
-          }
-          return FJewelryRenderer._paths
-        }
-
         /**
          * @param {CanvasRenderingContext2D} ctx
          * @param {fabric.FJewelryShape} target
          * @param {number} w 外接宽（与 RoundRect 一致用 max(width, minSize)）
          * @param {number} h 外接高
          */
+        static buildPath(ctx, target, w, h) {
+          var topWidth = target.topWidth
+          var topHeight = target.topHeight
+          var stemX = target.stemX
+          var stemWidth = target.stemWidth
+          var stemHeight = target.stemHeight
+          var left = -w / 2
+          var top = -h / 2
+          var topBottom = top + topHeight
+          var bottom = topBottom + stemHeight
+          var right = left + topWidth
+          var stemLeft = left + stemX
+          var stemRight = stemLeft + stemWidth
+          var topScaleX = topWidth / FJewelryUtils.VIEWBOX.width
+          var topScaleY = topHeight / FJewelryUtils.TOP_HEIGHT
+          var topScale = Math.min(topScaleX, topScaleY)
+          var stemScaleX = stemWidth / FJewelryUtils.STEM_WIDTH
+          var stemScaleY = stemHeight / (FJewelryUtils.VIEWBOX.height - FJewelryUtils.TOP_HEIGHT)
+          var stemScale = Math.min(stemScaleX, stemScaleY)
+          var r = Math.min(5.67 * topScale, topWidth / 2, topHeight / 2)
+          var smallR = Math.min(2.83 * stemScale, stemWidth / 3, stemHeight / 8)
+          var centerX = left + topWidth / 2
+          var topNotchHalf = Math.min(5.67 * topScaleX, topWidth / 4)
+          var topNotchY = top + 4.14 * topScaleY
+          var bottomNotchY = topBottom - 4.14 * topScaleY
+          var topNotchLeft = centerX - topNotchHalf
+          var topNotchRight = centerX + topNotchHalf
+          var shoulderOuter = stemRight - 5.67 * stemScaleX
+          var shoulderInner = stemLeft + Math.min(8.5 * stemScaleX, stemWidth * 0.75)
+          var verticalMetrics = FJewelryUtils.getStemVerticalMetrics(stemHeight)
+          var shoulderInnerDrop = verticalMetrics.shoulderInnerDrop
+          var stemSlotTopY = topBottom + target.stemSlotTopY
+          var footTopY = topBottom + verticalMetrics.footTopY
+          var footShelfY = topBottom + target.stemSlotBottomY
+          var footOuter = stemRight - 1.42 * stemScaleX
+          var footShelfLeft = stemRight - 5.67 * stemScaleX
+          var footRight = stemLeft + FJewelryUtils.getStemFootWidth(stemWidth)
+
+          shoulderOuter = FJewelryUtils.clamp(shoulderOuter, stemLeft, stemRight)
+          shoulderInner = FJewelryUtils.clamp(shoulderInner, stemLeft, stemRight)
+          footOuter = FJewelryUtils.clamp(footOuter, stemLeft, stemRight)
+          footShelfLeft = FJewelryUtils.clamp(footShelfLeft, stemLeft, stemRight)
+          footRight = FJewelryUtils.clamp(footRight, stemLeft, stemRight)
+
+          if (target.mirrorStemOnRight === false && stemLeft + stemWidth / 2 > centerX) {
+            ctx.beginPath()
+            ctx.moveTo(shoulderOuter, topBottom)
+            ctx.quadraticCurveTo(
+              shoulderInner,
+              topBottom,
+              shoulderInner,
+              topBottom + shoulderInnerDrop
+            )
+            ctx.lineTo(shoulderInner, stemSlotTopY - shoulderInnerDrop)
+            ctx.quadraticCurveTo(shoulderInner, stemSlotTopY, shoulderOuter, stemSlotTopY)
+            ctx.lineTo(stemRight - smallR, stemSlotTopY)
+            ctx.quadraticCurveTo(stemRight, stemSlotTopY, stemRight, stemSlotTopY + smallR)
+            ctx.lineTo(stemRight, footShelfY - smallR)
+            ctx.quadraticCurveTo(stemRight, footShelfY, footOuter, footShelfY)
+            ctx.lineTo(footShelfLeft, footShelfY)
+            ctx.quadraticCurveTo(footRight, footShelfY, footRight, footTopY)
+            ctx.lineTo(footRight, bottom)
+            ctx.lineTo(stemLeft, bottom)
+            ctx.lineTo(stemLeft, topBottom + shoulderInnerDrop)
+            ctx.quadraticCurveTo(stemLeft, topBottom, stemLeft - smallR, topBottom)
+
+            ctx.moveTo(topNotchRight, topBottom)
+            ctx.bezierCurveTo(
+              topNotchRight - 2.52 * topScaleX,
+              topBottom,
+              centerX + 0.27 * topScaleX,
+              bottomNotchY,
+              centerX,
+              bottomNotchY
+            )
+            ctx.bezierCurveTo(
+              centerX - 0.27 * topScaleX,
+              bottomNotchY,
+              topNotchLeft + 2.52 * topScaleX,
+              topBottom,
+              topNotchLeft,
+              topBottom
+            )
+            ctx.lineTo(left + r, topBottom)
+            ctx.quadraticCurveTo(left, topBottom, left, topBottom - r)
+            ctx.lineTo(left, top + r)
+            ctx.quadraticCurveTo(left, top, left + r, top)
+            ctx.lineTo(topNotchLeft, top)
+            ctx.bezierCurveTo(
+              topNotchLeft + 2.52 * topScaleX,
+              top,
+              centerX - 0.27 * topScaleX,
+              topNotchY,
+              centerX,
+              topNotchY
+            )
+            ctx.bezierCurveTo(
+              centerX + 0.27 * topScaleX,
+              topNotchY,
+              topNotchRight - 2.52 * topScaleX,
+              top,
+              topNotchRight,
+              top
+            )
+            ctx.lineTo(right - r, top)
+            ctx.quadraticCurveTo(right, top, right, top + r)
+            ctx.lineTo(right, topBottom - r)
+            ctx.quadraticCurveTo(right, topBottom, right - r, topBottom)
+            ctx.lineTo(topNotchRight, topBottom)
+            ctx.closePath()
+            return
+          }
+
+          ctx.beginPath()
+          ctx.moveTo(topNotchRight, top)
+          ctx.lineTo(right - r, top)
+          ctx.quadraticCurveTo(right, top, right, top + r)
+          ctx.lineTo(right, topBottom - r)
+          ctx.quadraticCurveTo(right, topBottom, right - r, topBottom)
+          ctx.lineTo(topNotchRight, topBottom)
+          ctx.bezierCurveTo(
+            topNotchRight - 2.52 * topScaleX,
+            topBottom,
+            centerX + 0.27 * topScaleX,
+            bottomNotchY,
+            centerX,
+            bottomNotchY
+          )
+          ctx.bezierCurveTo(
+            centerX - 0.27 * topScaleX,
+            bottomNotchY,
+            topNotchLeft + 2.52 * topScaleX,
+            topBottom,
+            topNotchLeft,
+            topBottom
+          )
+          ctx.lineTo(shoulderOuter, topBottom)
+          ctx.quadraticCurveTo(
+            shoulderInner,
+            topBottom,
+            shoulderInner,
+            topBottom + shoulderInnerDrop
+          )
+          ctx.lineTo(shoulderInner, stemSlotTopY - shoulderInnerDrop)
+          ctx.quadraticCurveTo(shoulderInner, stemSlotTopY, shoulderOuter, stemSlotTopY)
+          ctx.lineTo(stemRight - smallR, stemSlotTopY)
+          ctx.quadraticCurveTo(stemRight, stemSlotTopY, stemRight, stemSlotTopY + smallR)
+          ctx.lineTo(stemRight, footShelfY - smallR)
+          ctx.quadraticCurveTo(stemRight, footShelfY, footOuter, footShelfY)
+          ctx.lineTo(footShelfLeft, footShelfY)
+          ctx.quadraticCurveTo(footRight, footShelfY, footRight, footTopY)
+          ctx.lineTo(footRight, bottom)
+          ctx.lineTo(stemLeft, bottom)
+          ctx.lineTo(stemLeft, topBottom + shoulderInnerDrop)
+          ctx.quadraticCurveTo(stemLeft, topBottom, stemLeft - smallR, topBottom)
+          ctx.lineTo(left + r, topBottom)
+          ctx.quadraticCurveTo(left, topBottom, left, topBottom - r)
+          ctx.lineTo(left, top + r)
+          ctx.quadraticCurveTo(left, top, left + r, top)
+          ctx.lineTo(topNotchLeft, top)
+          ctx.bezierCurveTo(
+            topNotchLeft + 2.52 * topScaleX,
+            top,
+            centerX - 0.27 * topScaleX,
+            topNotchY,
+            centerX,
+            topNotchY
+          )
+          ctx.bezierCurveTo(
+            centerX + 0.27 * topScaleX,
+            topNotchY,
+            topNotchRight - 2.52 * topScaleX,
+            top,
+            topNotchRight,
+            top
+          )
+          ctx.closePath()
+        }
+
+        static renderTicks(ctx, target, w, h) {
+          var left = -w / 2
+          var top = -h / 2
+          var topCenterX = left + target.topWidth / 2
+          var stemCenterX = left + target.stemX + target.stemWidth / 2
+          var topScaleY = target.topHeight / FJewelryUtils.TOP_HEIGHT
+          var stemTop = top + target.topHeight
+          var lowerTickMinY = 82.2
+          var lowerTickMaxY = 164.41
+          var slotTopY = stemTop + target.stemSlotTopY
+          var slotBottomY = stemTop + target.stemSlotBottomY
+          var slotHeight = Math.max(slotBottomY - slotTopY, 1)
+
+          ctx.beginPath()
+          for (var j = 0; j < FJewelryUtils.TICK_LINES.length; j++) {
+            var seg = FJewelryUtils.TICK_LINES[j]
+            var isTopTick = seg[1] <= FJewelryUtils.TOP_HEIGHT
+            var x = isTopTick ? topCenterX : stemCenterX
+            var y1
+            var y2
+            if (isTopTick) {
+              y1 = top + seg[1] * topScaleY
+              y2 = top + seg[3] * topScaleY
+            } else {
+              y1 =
+                slotTopY + ((seg[1] - lowerTickMinY) / (lowerTickMaxY - lowerTickMinY)) * slotHeight
+              y2 =
+                slotTopY + ((seg[3] - lowerTickMinY) / (lowerTickMaxY - lowerTickMinY)) * slotHeight
+            }
+            ctx.moveTo(x, y1)
+            ctx.lineTo(x, y2)
+          }
+          ctx.strokeStyle = target.stroke || '#000'
+          ctx.lineWidth = typeof target.strokeWidth === 'number' ? target.strokeWidth : 0.35
+          ctx.stroke()
+        }
+
         static render(ctx, target, w, h) {
-          const vb = FJewelryUtils.VIEWBOX
           ctx.save()
-          ctx.translate(-w / 2, -h / 2)
-          ctx.scale(w / vb.width, h / vb.height)
 
           ctx.lineJoin = 'round'
           ctx.lineCap = 'round'
 
-          for (var i = 0; i < FJewelryRenderer.outlinePath2D().length; i++) {
-            var p = FJewelryRenderer.outlinePath2D()[i]
-            if (target.fill && target.fill !== '') {
-              ctx.fillStyle = target.fill
-              ctx.fill(p)
-            }
-            ctx.strokeStyle = target.stroke || '#000'
-            var sw = typeof target.strokeWidth === 'number' ? target.strokeWidth : 0.35
-            ctx.lineWidth = sw
-            ctx.stroke(p)
+          var renderTarget = target
+          if (target.mirrorStemOnRight !== false && FJewelryUtils.isStemOnRight(target)) {
+            renderTarget = Object.assign({}, target, {
+              stemX: target.topWidth - target.stemX - target.stemWidth
+            })
+            ctx.scale(-1, 1)
           }
+
+          FJewelryRenderer.buildPath(ctx, renderTarget, w, h)
+          if (target.fill && target.fill !== '') {
+            ctx.fillStyle = target.fill
+            ctx.fill()
+          }
+          ctx.strokeStyle = target.stroke || '#000'
+          ctx.lineWidth = typeof target.strokeWidth === 'number' ? target.strokeWidth : 0.35
+          ctx.stroke()
+          ctx.restore()
 
           if (target.ticks) {
-            ctx.beginPath()
-            for (var j = 0; j < FJewelryUtils.TICK_LINES.length; j++) {
-              var seg = FJewelryUtils.TICK_LINES[j]
-              ctx.moveTo(seg[0], seg[1])
-              ctx.lineTo(seg[2], seg[3])
-            }
-            ctx.strokeStyle = target.stroke || '#000'
-            ctx.lineWidth = typeof target.strokeWidth === 'number' ? target.strokeWidth : 0.35
-            ctx.stroke()
+            ctx.save()
+            FJewelryRenderer.renderTicks(ctx, target, w, h)
+            ctx.restore()
           }
-
-          ctx.restore()
         }
       }
 
       // 控制点处理器类（与终极版相同的 createResizeHandler + toLocalPoint）
       class FJewelryControlHandlers {
-        static createResizeHandler(updateFunction) {
+        static createResizeHandler(updateFunction, offsetX, offsetY) {
           return function (eventData, transform, x, y) {
             var target = transform.target
             var canvas = target.canvas
             var local = target.toLocalPoint(new fabric.Point(x, y), 'center', 'center')
+            local.x -= offsetX || 0
+            local.y -= offsetY || 0
             var result = updateFunction(target, local)
             if (result) {
               target.setCoords()
@@ -171,80 +479,219 @@
           }
         }
 
-        /** 右下角：在指针框内取最大等比矩形 */
-        static bottomRight(target, local) {
-          var newW = local.x + target.width / 2
-          var newH = local.y + target.height / 2
-          var sized = FJewelryUtils.clampToAspectBox(newW, newH)
-          target.set({
-            width: sized.width,
-            height: sized.height,
-            scaleX: 1,
-            scaleY: 1
+        static createPositionHandler(getLocalPoint, offsetX, offsetY) {
+          return function (dim, finalMatrix, target) {
+            var point = getLocalPoint(target)
+            point.x += offsetX || 0
+            point.y += offsetY || 0
+            return fabric.util.transformPoint(new fabric.Point(point.x, point.y), finalMatrix)
+          }
+        }
+
+        static createSectionControl(
+          positionFunction,
+          actionFunction,
+          cursorStyle,
+          offsetX,
+          offsetY
+        ) {
+          return new fabric.Control({
+            positionHandler: FJewelryControlHandlers.createPositionHandler(
+              positionFunction,
+              offsetX,
+              offsetY
+            ),
+            cursorStyle: cursorStyle,
+            actionHandler: FJewelryControlHandlers.createResizeHandler(
+              actionFunction,
+              offsetX,
+              offsetY
+            ),
+            render: FJewelryControlHandlers.renderNativeStyleControl
           })
+        }
+
+        static renderNativeStyleControl(ctx, left, top, styleOverride, target) {
+          styleOverride || (styleOverride = {})
+          if (fabric.controlsUtils && fabric.controlsUtils.renderSquareControl) {
+            fabric.controlsUtils.renderSquareControl(ctx, left, top, styleOverride, target)
+            return
+          }
+
+          var size = styleOverride.cornerSize || target.cornerSize || 13
+          var stroke = styleOverride.cornerStrokeColor || target.cornerStrokeColor || '#b3c7ff'
+          var fill = styleOverride.cornerColor || target.cornerColor || 'rgba(255, 255, 255, 0)'
+          ctx.save()
+          ctx.fillStyle = target.transparentCorners === false ? fill : 'rgba(255, 255, 255, 0)'
+          ctx.strokeStyle = stroke
+          ctx.lineWidth = 1
+          if (target.transparentCorners === false) {
+            ctx.fillRect(left - size / 2, top - size / 2, size, size)
+          }
+          ctx.strokeRect(left - size / 2, top - size / 2, size, size)
+          ctx.restore()
+        }
+
+        static upperLeftPosition(target) {
+          var p = FJewelryUtils.localTopLeft(target)
+          return { x: p.x, y: p.y + target.topHeight / 2 }
+        }
+
+        static upperRightPosition(target) {
+          var p = FJewelryUtils.localTopLeft(target)
+          return { x: p.x + target.topWidth, y: p.y + target.topHeight / 2 }
+        }
+
+        static upperTopPosition(target) {
+          var p = FJewelryUtils.localTopLeft(target)
+          return { x: p.x + target.topWidth / 2, y: p.y }
+        }
+
+        static upperBottomPosition(target) {
+          var p = FJewelryUtils.localTopLeft(target)
+          return { x: p.x + target.topWidth / 2, y: p.y + target.topHeight }
+        }
+
+        static lowerLeftPosition(target) {
+          var p = FJewelryUtils.localTopLeft(target)
+          return {
+            x: p.x + target.stemX,
+            y: p.y + target.topHeight + (target.stemSlotTopY + target.stemSlotBottomY) / 2
+          }
+        }
+
+        static lowerRightPosition(target) {
+          var p = FJewelryUtils.localTopLeft(target)
+          return {
+            x: p.x + target.stemX + target.stemWidth,
+            y: p.y + target.topHeight + (target.stemSlotTopY + target.stemSlotBottomY) / 2
+          }
+        }
+
+        static lowerMovePosition(target) {
+          var p = FJewelryUtils.localTopLeft(target)
+          return {
+            x: p.x + target.stemX + target.stemWidth / 2,
+            y: p.y + target.topHeight + (target.stemSlotTopY + target.stemSlotBottomY) / 2
+          }
+        }
+
+        static lowerTopHeightPosition(target) {
+          var p = FJewelryUtils.localTopLeft(target)
+          return {
+            x: p.x + target.stemX + target.stemWidth,
+            y: p.y + target.topHeight + target.stemSlotTopY
+          }
+        }
+
+        static lowerFootHeightPosition(target) {
+          var p = FJewelryUtils.localTopLeft(target)
+          return {
+            x: p.x + target.stemX + target.stemWidth,
+            y: p.y + target.topHeight + target.stemSlotBottomY
+          }
+        }
+
+        static lowerBottomPosition(target) {
+          var p = FJewelryUtils.localTopLeft(target)
+          return {
+            x: p.x + target.stemX + FJewelryUtils.getStemFootWidth(target.stemWidth) / 2,
+            y: p.y + target.topHeight + target.stemHeight
+          }
+        }
+
+        static upperRightWidth(target, local) {
+          target.topWidth = Math.max(local.x + target.width / 2, FJewelryUtils.MIN_SIZE)
+          FJewelryUtils.normalizeGeometry(target)
           return true
         }
 
-        /** 右边：改宽，高随比例 */
-        static right(target, local) {
-          var newW = local.x + target.width / 2
-          var sized = FJewelryUtils.sizeFromWidth(newW)
-          target.set({ width: sized.width, height: sized.height, scaleX: 1, scaleY: 1 })
+        static upperLeftWidth(target, local) {
+          var oldWidth = target.topWidth
+          var oldStemRight = target.stemX + target.stemWidth
+          var newWidth = target.width / 2 - local.x
+          target.topWidth = Math.max(newWidth, FJewelryUtils.MIN_SIZE, target.stemWidth)
+          target.stemX += target.topWidth - oldWidth
+          target.stemX = Math.min(target.stemX, target.topWidth - target.stemWidth)
+          FJewelryUtils.normalizeGeometry(target)
+          var deltaW = target.topWidth - oldWidth
+          target.stemX = FJewelryUtils.clamp(target.stemX, 0, target.topWidth - target.stemWidth)
+          if (target.stemX + target.stemWidth < oldStemRight) {
+            target.stemX = FJewelryUtils.clamp(
+              oldStemRight - target.stemWidth,
+              0,
+              target.topWidth - target.stemWidth
+            )
+          }
+          FJewelryUtils.moveByLocalVector(target, -deltaW, 0)
           return true
         }
 
-        /** 左边：改宽并平移 */
-        static left(target, local) {
-          var newW = target.width / 2 - local.x
-          var sized = FJewelryUtils.sizeFromWidth(newW)
-          var deltaW = sized.width - target.width
-          var angle = (target.angle * Math.PI) / 180
-          var cos = Math.cos(angle)
-          var sin = Math.sin(angle)
-          var offsetX = -deltaW * cos
-          var offsetY = -deltaW * sin
-          target.set({
-            width: sized.width,
-            height: sized.height,
-            left: target.left + offsetX,
-            top: target.top + offsetY,
-            scaleX: 1,
-            scaleY: 1
-          })
+        static upperBottomHeight(target, local) {
+          target.topHeight = Math.max(local.y + target.height / 2, FJewelryUtils.MIN_TOP_HEIGHT)
+          FJewelryUtils.normalizeGeometry(target)
           return true
         }
 
-        /** 上边：改高并平移 */
-        static top(target, local) {
-          var newH = target.height / 2 - local.y
-          var sized = FJewelryUtils.sizeFromHeight(newH)
-          var deltaH = sized.height - target.height
-          var angle = (target.angle * Math.PI) / 180
-          var cos = Math.cos(angle)
-          var sin = Math.sin(angle)
-          var offsetX = deltaH * sin
-          var offsetY = -deltaH * cos
-          target.set({
-            width: sized.width,
-            height: sized.height,
-            left: target.left + offsetX,
-            top: target.top + offsetY,
-            scaleY: 1,
-            scaleX: 1
-          })
+        static upperTopHeight(target, local) {
+          var oldTopHeight = target.topHeight
+          var topBottomLocal = -target.height / 2 + target.topHeight
+          target.topHeight = Math.max(topBottomLocal - local.y, FJewelryUtils.MIN_TOP_HEIGHT)
+          FJewelryUtils.normalizeGeometry(target)
+          var deltaH = target.topHeight - oldTopHeight
+          FJewelryUtils.moveByLocalVector(target, 0, -deltaH)
           return true
         }
 
-        /** 下边 */
-        static bottom(target, local) {
-          var newH = local.y + target.height / 2
-          var sized = FJewelryUtils.sizeFromHeight(newH)
-          target.set({ width: sized.width, height: sized.height, scaleY: 1, scaleX: 1 })
+        static lowerRightWidth(target, local) {
+          var localX = local.x + target.width / 2
+          target.stemWidth = Math.max(localX - target.stemX, FJewelryUtils.MIN_STEM_WIDTH)
+          FJewelryUtils.normalizeGeometry(target)
+          return true
+        }
+
+        static lowerLeftWidth(target, local) {
+          var oldRight = target.stemX + target.stemWidth
+          var newLeft = FJewelryUtils.clamp(
+            local.x + target.width / 2,
+            0,
+            oldRight - FJewelryUtils.MIN_STEM_WIDTH
+          )
+          target.stemX = newLeft
+          target.stemWidth = oldRight - newLeft
+          FJewelryUtils.normalizeGeometry(target)
+          return true
+        }
+
+        static lowerMove(target, local) {
+          target.stemX = local.x + target.width / 2 - target.stemWidth / 2
+          FJewelryUtils.normalizeGeometry(target)
+          return true
+        }
+
+        static lowerTopHeight(target, local) {
+          var localY = local.y + target.height / 2
+          target.stemSlotTopY = localY - target.topHeight
+          FJewelryUtils.normalizeGeometry(target)
+          return true
+        }
+
+        static lowerFootHeight(target, local) {
+          var localY = local.y + target.height / 2
+          target.stemSlotBottomY = localY - target.topHeight
+          FJewelryUtils.normalizeGeometry(target)
+          return true
+        }
+
+        static lowerBottomHeight(target, local) {
+          var localY = local.y + target.height / 2
+          target.stemHeight = Math.max(localY - target.topHeight, FJewelryUtils.MIN_STEM_HEIGHT)
+          FJewelryUtils.normalizeGeometry(target)
           return true
         }
       }
 
-      // 主类：继承 fabric.Object，自定义 _render 与五向控制点
+      // 主类：继承 fabric.Object，自定义 _render 与上下分段控制点
       var FJewelryShape = fabric.util.createClass(fabric.Object, {
         type: 'f-jewelry',
         minSize: FJewelryUtils.MIN_SIZE,
@@ -256,81 +703,154 @@
           var vb = FJewelryUtils.VIEWBOX
           var initW = options.width != null ? options.width : vb.width * 1.5
           var initH = options.height != null ? options.height : vb.height * 1.5
-          var sized = FJewelryUtils.clampToAspectBox(initW, initH)
 
           this.ticks = options.ticks !== false
+          this.controlMode = FJewelryUtils.normalizeControlMode(options.controlMode)
+          this.mirrorStemOnRight = options.mirrorStemOnRight !== false
           if (options.minSize != null) {
             this.minSize = options.minSize
           }
 
+          FJewelryUtils.initializeGeometry(this, options, initW, initH)
+
           this.set({
-            width: sized.width,
-            height: sized.height,
             fill: options.fill != null ? options.fill : '',
             stroke: options.stroke != null ? options.stroke : '#18181b',
             strokeWidth: options.strokeWidth != null ? options.strokeWidth : 0.35,
-            lockScalingX: true,
-            lockScalingY: true,
+            lockScalingX: this.controlMode === FJewelryUtils.CONTROL_MODE_CUSTOM,
+            lockScalingY: this.controlMode === FJewelryUtils.CONTROL_MODE_CUSTOM,
             objectCaching: false,
             hasControls: options.hasControls != null ? options.hasControls : false,
             hasBorders: options.hasBorders != null ? options.hasBorders : false
           })
 
-          this._initCustomControls()
+          this.setControlMode(this.controlMode)
         },
 
         _render: function (ctx) {
           var w0 = Math.max(this.width, this.minSize)
           var h0 = Math.max(this.height, this.minSize)
-          var box = FJewelryUtils.clampToAspectBox(w0, h0)
-          FJewelryRenderer.render(ctx, this, box.width, box.height)
+          FJewelryRenderer.render(ctx, this, w0, h0)
         },
 
         _initCustomControls: function () {
-          this.controls.br = new fabric.Control({
-            x: 0.5,
-            y: 0.5,
-            cursorStyle: 'nwse-resize',
-            actionHandler: FJewelryControlHandlers.createResizeHandler(
-              FJewelryControlHandlers.bottomRight
-            )
-          })
+          this.controls.upperLeftWidth = FJewelryControlHandlers.createSectionControl(
+            FJewelryControlHandlers.upperLeftPosition,
+            FJewelryControlHandlers.upperLeftWidth,
+            'ew-resize',
+            -FJewelryUtils.CONTROL_EDGE_OFFSET,
+            0
+          )
 
-          this.controls.mr = new fabric.Control({
-            x: 0.5,
-            y: 0,
-            cursorStyle: 'ew-resize',
-            actionHandler: FJewelryControlHandlers.createResizeHandler(
-              FJewelryControlHandlers.right
-            )
-          })
+          this.controls.upperRightWidth = FJewelryControlHandlers.createSectionControl(
+            FJewelryControlHandlers.upperRightPosition,
+            FJewelryControlHandlers.upperRightWidth,
+            'ew-resize',
+            FJewelryUtils.CONTROL_EDGE_OFFSET,
+            0
+          )
 
-          this.controls.ml = new fabric.Control({
-            x: -0.5,
-            y: 0,
-            cursorStyle: 'ew-resize',
-            actionHandler: FJewelryControlHandlers.createResizeHandler(FJewelryControlHandlers.left)
-          })
+          this.controls.mt = FJewelryControlHandlers.createSectionControl(
+            FJewelryControlHandlers.upperTopPosition,
+            FJewelryControlHandlers.upperTopHeight,
+            'ns-resize',
+            0,
+            -FJewelryUtils.CONTROL_EDGE_OFFSET
+          )
 
-          this.controls.mt = new fabric.Control({
-            x: 0,
-            y: -0.5,
-            cursorStyle: 'ns-resize',
-            actionHandler: FJewelryControlHandlers.createResizeHandler(FJewelryControlHandlers.top)
-          })
+          this.controls.upperBottomHeight = FJewelryControlHandlers.createSectionControl(
+            FJewelryControlHandlers.upperBottomPosition,
+            FJewelryControlHandlers.upperBottomHeight,
+            'ns-resize',
+            0,
+            FJewelryUtils.CONTROL_EDGE_OFFSET
+          )
 
-          this.controls.mb = new fabric.Control({
-            x: 0,
-            y: 0.5,
-            cursorStyle: 'ns-resize',
-            actionHandler: FJewelryControlHandlers.createResizeHandler(
-              FJewelryControlHandlers.bottom
-            )
-          })
+          this.controls.lowerLeftWidth = FJewelryControlHandlers.createSectionControl(
+            FJewelryControlHandlers.lowerLeftPosition,
+            FJewelryControlHandlers.lowerLeftWidth,
+            'ew-resize',
+            -FJewelryUtils.CONTROL_EDGE_OFFSET,
+            0
+          )
+
+          this.controls.lowerRightWidth = FJewelryControlHandlers.createSectionControl(
+            FJewelryControlHandlers.lowerRightPosition,
+            FJewelryControlHandlers.lowerRightWidth,
+            'ew-resize',
+            FJewelryUtils.CONTROL_EDGE_OFFSET,
+            0
+          )
+
+          this.controls.lowerMove = FJewelryControlHandlers.createSectionControl(
+            FJewelryControlHandlers.lowerMovePosition,
+            FJewelryControlHandlers.lowerMove,
+            'move',
+            0,
+            0
+          )
+
+          this.controls.lowerTopHeight = FJewelryControlHandlers.createSectionControl(
+            FJewelryControlHandlers.lowerTopHeightPosition,
+            FJewelryControlHandlers.lowerTopHeight,
+            'ns-resize',
+            FJewelryUtils.CONTROL_EDGE_OFFSET,
+            0
+          )
+
+          this.controls.lowerFootHeight = FJewelryControlHandlers.createSectionControl(
+            FJewelryControlHandlers.lowerFootHeightPosition,
+            FJewelryControlHandlers.lowerFootHeight,
+            'ns-resize',
+            FJewelryUtils.CONTROL_EDGE_OFFSET,
+            0
+          )
+
+          this.controls.lowerBottomHeight = FJewelryControlHandlers.createSectionControl(
+            FJewelryControlHandlers.lowerBottomPosition,
+            FJewelryControlHandlers.lowerBottomHeight,
+            'ns-resize',
+            0,
+            FJewelryUtils.CONTROL_EDGE_OFFSET
+          )
+        },
+
+        setControlMode: function (mode) {
+          this.controlMode = FJewelryUtils.normalizeControlMode(mode)
+          this.lockScalingX = this.controlMode === FJewelryUtils.CONTROL_MODE_CUSTOM
+          this.lockScalingY = this.controlMode === FJewelryUtils.CONTROL_MODE_CUSTOM
+
+          if (this.controlMode === FJewelryUtils.CONTROL_MODE_CUSTOM) {
+            this.controls = {}
+            this._initCustomControls()
+          } else {
+            this.controls = Object.assign({}, fabric.Object.prototype.controls || {})
+          }
+
+          this.setCoords()
+          if (this.canvas) {
+            this.canvas.requestRenderAll()
+          }
+          return this
         },
 
         toObject: function (additionalProps) {
-          return this.callSuper('toObject', ['ticks', 'minSize'].concat(additionalProps || []))
+          return this.callSuper(
+            'toObject',
+            [
+              'ticks',
+              'minSize',
+              'controlMode',
+              'mirrorStemOnRight',
+              'topWidth',
+              'topHeight',
+              'stemX',
+              'stemWidth',
+              'stemHeight',
+              'stemSlotTopY',
+              'stemSlotBottomY'
+            ].concat(additionalProps || [])
+          )
         }
       })
 
@@ -342,41 +862,23 @@
 
       var canvas = new fabric.Canvas('canvas', { width: 800, height: 800 })
 
-      var f1 = new fabric.FJewelryShape({
-        left: 220,
-        top: 180,
-        angle: 0,
-        stroke: '#1d4ed8',
-        strokeWidth: 0.45,
-        ticks: true
-      })
-      canvas.add(f1)
-
-      var f2 = new fabric.FJewelryShape({
-        left: 520,
-        top: 260,
+      var f3 = new fabric.FJewelryShape({
+        left: 300,
+        top: 200,
         width: FJewelryUtils.VIEWBOX.width * 2,
         height: FJewelryUtils.VIEWBOX.height * 2,
-        angle: 28,
-        stroke: '#15803d',
-        strokeWidth: 0.5,
-        ticks: true
-      })
-      canvas.add(f2)
-
-      var f3 = new fabric.FJewelryShape({
-        left: 400,
-        top: 520,
-        width: FJewelryUtils.VIEWBOX.width * 0.9,
-        height: FJewelryUtils.VIEWBOX.height * 0.9,
-        angle: -12,
+        angle: 0,
         stroke: '#a21caf',
         fill: 'rgba(250, 232, 255, 0.35)',
         ticks: true,
+        controlMode: 'custom',
+        mirrorStemOnRight: false,
         hasControls: true,
         hasBorders: true
       })
       canvas.add(f3)
+      canvas.setActiveObject(f3)
+      canvas.requestRenderAll()
     </script>
   </body>
 </html>
