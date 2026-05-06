@@ -257,7 +257,7 @@
           footShelfLeft = FJewelryUtils.clamp(footShelfLeft, stemLeft, stemRight)
           footRight = FJewelryUtils.clamp(footRight, stemLeft, stemRight)
 
-          if (target.keepStemDirectionOnRight && stemLeft + stemWidth / 2 > centerX) {
+          if (target.mirrorStemOnRight === false && stemLeft + stemWidth / 2 > centerX) {
             ctx.beginPath()
             ctx.moveTo(topNotchRight, top)
             ctx.lineTo(right - r, top)
@@ -437,10 +437,10 @@
           var renderTarget = target
           if (target.mirrorStemOnRight !== false && FJewelryUtils.isStemOnRight(target)) {
             renderTarget = Object.assign({}, target, {
-              keepStemDirectionOnRight: true
+              stemX: target.topWidth - target.stemX - target.stemWidth
             })
+            ctx.scale(-1, 1)
           }
-
           FJewelryRenderer.buildPath(ctx, renderTarget, w, h)
           if (target.fill && target.fill !== '') {
             ctx.fillStyle = target.fill
@@ -576,16 +576,20 @@
 
         static lowerTopHeightPosition(target) {
           var p = FJewelryUtils.localTopLeft(target)
+          var isMirroredRightStem =
+            target.mirrorStemOnRight !== false && FJewelryUtils.isStemOnRight(target)
           return {
-            x: p.x + target.stemX + target.stemWidth,
+            x: p.x + target.stemX + (isMirroredRightStem ? 0 : target.stemWidth),
             y: p.y + target.topHeight + target.stemSlotTopY
           }
         }
 
         static lowerFootHeightPosition(target) {
           var p = FJewelryUtils.localTopLeft(target)
+          var isMirroredRightStem =
+            target.mirrorStemOnRight !== false && FJewelryUtils.isStemOnRight(target)
           return {
-            x: p.x + target.stemX + target.stemWidth,
+            x: p.x + target.stemX + (isMirroredRightStem ? 0 : target.stemWidth),
             y: p.y + target.topHeight + target.stemSlotBottomY
           }
         }
@@ -870,7 +874,7 @@
         fill: 'rgba(250, 232, 255, 0.35)',
         ticks: true,
         controlMode: 'custom',
-        mirrorStemOnRight: true,
+        mirrorStemOnRight: false,
         hasControls: true,
         hasBorders: true
       })
