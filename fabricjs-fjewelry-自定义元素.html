@@ -257,9 +257,14 @@
           footShelfLeft = FJewelryUtils.clamp(footShelfLeft, stemLeft, stemRight)
           footRight = FJewelryUtils.clamp(footRight, stemLeft, stemRight)
 
-          if (target.mirrorStemOnRight === false && stemLeft + stemWidth / 2 > centerX) {
+          if (target.keepStemDirectionOnRight && stemLeft + stemWidth / 2 > centerX) {
             ctx.beginPath()
-            ctx.moveTo(shoulderOuter, topBottom)
+            ctx.moveTo(topNotchRight, top)
+            ctx.lineTo(right - r, top)
+            ctx.quadraticCurveTo(right, top, right, top + r)
+            ctx.lineTo(right, topBottom - r)
+            ctx.quadraticCurveTo(right, topBottom, right - r, topBottom)
+            ctx.lineTo(shoulderOuter, topBottom)
             ctx.quadraticCurveTo(
               shoulderInner,
               topBottom,
@@ -278,8 +283,7 @@
             ctx.lineTo(stemLeft, bottom)
             ctx.lineTo(stemLeft, topBottom + shoulderInnerDrop)
             ctx.quadraticCurveTo(stemLeft, topBottom, stemLeft - smallR, topBottom)
-
-            ctx.moveTo(topNotchRight, topBottom)
+            ctx.lineTo(topNotchRight, topBottom)
             ctx.bezierCurveTo(
               topNotchRight - 2.52 * topScaleX,
               topBottom,
@@ -317,11 +321,6 @@
               topNotchRight,
               top
             )
-            ctx.lineTo(right - r, top)
-            ctx.quadraticCurveTo(right, top, right, top + r)
-            ctx.lineTo(right, topBottom - r)
-            ctx.quadraticCurveTo(right, topBottom, right - r, topBottom)
-            ctx.lineTo(topNotchRight, topBottom)
             ctx.closePath()
             return
           }
@@ -438,9 +437,8 @@
           var renderTarget = target
           if (target.mirrorStemOnRight !== false && FJewelryUtils.isStemOnRight(target)) {
             renderTarget = Object.assign({}, target, {
-              stemX: target.topWidth - target.stemX - target.stemWidth
+              keepStemDirectionOnRight: true
             })
-            ctx.scale(-1, 1)
           }
 
           FJewelryRenderer.buildPath(ctx, renderTarget, w, h)
@@ -595,7 +593,7 @@
         static lowerBottomPosition(target) {
           var p = FJewelryUtils.localTopLeft(target)
           return {
-            x: p.x + target.stemX + FJewelryUtils.getStemFootWidth(target.stemWidth) / 2,
+            x: p.x + target.stemX + target.stemWidth / 2,
             y: p.y + target.topHeight + target.stemHeight
           }
         }
@@ -872,7 +870,7 @@
         fill: 'rgba(250, 232, 255, 0.35)',
         ticks: true,
         controlMode: 'custom',
-        mirrorStemOnRight: false,
+        mirrorStemOnRight: true,
         hasControls: true,
         hasBorders: true
       })
