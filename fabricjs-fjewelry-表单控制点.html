@@ -444,6 +444,53 @@
           FJewelryUtils.normalizeGeometry(target)
         }
 
+        static buildInitialCurveMetrics(target) {
+          var topScaleX = target.topWidth / FJewelryUtils.VIEWBOX.width
+          var topScaleY = target.topHeight / FJewelryUtils.TOP_HEIGHT
+          var topScale = Math.min(topScaleX, topScaleY)
+          var stemScaleX = target.stemWidth / FJewelryUtils.STEM_WIDTH
+          var stemScaleY = target.stemHeight / (FJewelryUtils.VIEWBOX.height - FJewelryUtils.TOP_HEIGHT)
+          var stemScale = Math.min(stemScaleX, stemScaleY)
+          var verticalMetrics = FJewelryUtils.getStemVerticalMetrics(target.stemHeight)
+          var shoulderOuterInset = 5.67 * stemScaleX
+          var shoulderInnerInset = Math.min(8.5 * stemScaleX, target.stemWidth * 0.75)
+          var footShelfInset = 5.67 * stemScaleX
+          var footWidth = FJewelryUtils.getStemFootWidth(target.stemWidth)
+          var stemCenterOffset = target.stemWidth / 2
+
+          return {
+            topRadius: 5.67 * topScale,
+            stemRadius: Math.min(2.83 * stemScale, target.stemWidth / 3, target.stemHeight / 8),
+            topNotchHalf: 5.67 * topScaleX,
+            topNotchDepth: 4.14 * topScaleY,
+            topNotchControlX: 2.52 * topScaleX,
+            topNotchCenterControlX: 0.27 * topScaleX,
+            shoulderOuterInset: shoulderOuterInset,
+            shoulderInnerCenterOffset: shoulderInnerInset - stemCenterOffset,
+            shoulderCurveGap: Math.max(
+              target.stemWidth - shoulderOuterInset - shoulderInnerInset,
+              0
+            ),
+            shoulderDrop: verticalMetrics.shoulderDrop,
+            shoulderInnerDrop: verticalMetrics.shoulderInnerDrop,
+            stemStartGap: verticalMetrics.stemStartY - verticalMetrics.shoulderDrop,
+            footHeight: verticalMetrics.footHeight,
+            footNotchHeight: verticalMetrics.footNotchHeight,
+            footOuterInset: 1.42 * stemScaleX,
+            footShelfInset: footShelfInset,
+            footRightCenterOffset: footWidth - stemCenterOffset,
+            footShelfCurveGap: Math.max(target.stemWidth - footShelfInset - footWidth, 0),
+            footWidth: footWidth
+          }
+        }
+
+        static getInitialCurveMetrics(target) {
+          if (!target.initialCurveMetrics) {
+            target.initialCurveMetrics = FJewelryUtils.buildInitialCurveMetrics(target)
+          }
+          return target.initialCurveMetrics
+        }
+
         static localTopLeft(target) {
           return {
             x: -target.width / 2,
@@ -502,10 +549,40 @@
           }
         }
 
-        static normalizeStemSlot(target) {
-          var metrics = FJewelryUtils.getStemVerticalMetrics(target.stemHeight)
+        static getStemVerticalMetricsForTarget(target) {
+          var initial = FJewelryUtils.getInitialCurveMetrics(target)
+          return {
+            shoulderDrop: initial.shoulderDrop,
+            shoulderInnerDrop: initial.shoulderInnerDrop,
+            stemStartY: initial.shoulderDrop + initial.stemStartGap,
+            footHeight: initial.footHeight,
+            footNotchHeight: initial.footNotchHeight,
+            footTopY: target.stemHeight - initial.footHeight,
+            footShelfY: target.stemHeight - initial.footHeight - initial.footNotchHeight
+          }
+        }
+
+        static getStemSlotBottomMax(target, metrics) {
+          metrics || (metrics = FJewelryUtils.getStemVerticalMetricsForTarget(target))
           var minTop = Math.max(metrics.shoulderDrop, 0)
-          var maxBottom = Math.max(metrics.footTopY, minTop + FJewelryUtils.MIN_STEM_SLOT_HEIGHT)
+          var minSlotBottom = minTop + FJewelryUtils.MIN_STEM_SLOT_HEIGHT
+          var footCurveGap = FJewelryUtils.getFootCurveGap(metrics)
+          var footTailMinHeight = FJewelryUtils.getFootTailMinHeight(metrics)
+          return Math.max(target.stemHeight - footCurveGap - footTailMinHeight, minSlotBottom)
+        }
+
+        static getFootCurveGap(metrics) {
+          return Math.max((metrics && metrics.footNotchHeight) || 0, 1)
+        }
+
+        static getFootTailMinHeight(metrics) {
+          return Math.max(FJewelryUtils.getFootCurveGap(metrics), 1)
+        }
+
+        static normalizeStemSlot(target) {
+          var metrics = FJewelryUtils.getStemVerticalMetricsForTarget(target)
+          var minTop = Math.max(metrics.shoulderDrop, 0)
+          var maxBottom = FJewelryUtils.getStemSlotBottomMax(target, metrics)
 
           if (typeof target.stemSlotTopY !== 'number') {
             target.stemSlotTopY = metrics.stemStartY
@@ -553,36 +630,27 @@
           var right = left + topWidth
           var stemLeft = left + stemX
           var stemRight = stemLeft + stemWidth
-          var topScaleX = topWidth / FJewelryUtils.VIEWBOX.width
-          var topScaleY = topHeight / FJewelryUtils.TOP_HEIGHT
-          var topScale = Math.min(topScaleX, topScaleY)
-          var stemScaleX = stemWidth / FJewelryUtils.STEM_WIDTH
-          var stemScaleY = stemHeight / (FJewelryUtils.VIEWBOX.height - FJewelryUtils.TOP_HEIGHT)
-          var stemScale = Math.min(stemScaleX, stemScaleY)
-          var r = Math.min(5.67 * topScale, topWidth / 2, topHeight / 2)
-          var smallR = Math.min(2.83 * stemScale, stemWidth / 3, stemHeight / 8)
+          var stemCenterX = stemLeft + stemWidth / 2
+          var initialCurves = FJewelryUtils.getInitialCurveMetrics(target)
+          var r = initialCurves.topRadius
+          var smallR = initialCurves.stemRadius
           var centerX = left + topWidth / 2
-          var topNotchHalf = Math.min(5.67 * topScaleX, topWidth / 4)
-          var topNotchY = top + 4.14 * topScaleY
-          var bottomNotchY = topBottom - 4.14 * topScaleY
+          var topNotchHalf = initialCurves.topNotchHalf
+          var topNotchY = top + initialCurves.topNotchDepth
+          var bottomNotchY = topBottom - initialCurves.topNotchDepth
           var topNotchLeft = centerX - topNotchHalf
           var topNotchRight = centerX + topNotchHalf
-          var shoulderOuter = stemRight - 5.67 * stemScaleX
-          var shoulderInner = stemLeft + Math.min(8.5 * stemScaleX, stemWidth * 0.75)
-          var verticalMetrics = FJewelryUtils.getStemVerticalMetrics(stemHeight)
+          var shoulderInner = stemCenterX + initialCurves.shoulderInnerCenterOffset
+          var shoulderOuter = shoulderInner + initialCurves.shoulderCurveGap
+          var verticalMetrics = FJewelryUtils.getStemVerticalMetricsForTarget(target)
           var shoulderInnerDrop = verticalMetrics.shoulderInnerDrop
           var stemSlotTopY = topBottom + target.stemSlotTopY
-          var footTopY = topBottom + verticalMetrics.footTopY
           var footShelfY = topBottom + target.stemSlotBottomY
-          var footOuter = stemRight - 1.42 * stemScaleX
-          var footShelfLeft = stemRight - 5.67 * stemScaleX
-          var footRight = stemLeft + FJewelryUtils.getStemFootWidth(stemWidth)
-
-          shoulderOuter = FJewelryUtils.clamp(shoulderOuter, stemLeft, stemRight)
-          shoulderInner = FJewelryUtils.clamp(shoulderInner, stemLeft, stemRight)
-          footOuter = FJewelryUtils.clamp(footOuter, stemLeft, stemRight)
-          footShelfLeft = FJewelryUtils.clamp(footShelfLeft, stemLeft, stemRight)
-          footRight = FJewelryUtils.clamp(footRight, stemLeft, stemRight)
+          var footCurveGap = FJewelryUtils.getFootCurveGap(verticalMetrics)
+          var footTopY = footShelfY + footCurveGap
+          var footOuter = stemRight - initialCurves.footOuterInset
+          var footRight = stemCenterX + initialCurves.footRightCenterOffset
+          var footShelfLeft = footRight + initialCurves.footShelfCurveGap
 
           if (target.mirrorStemOnRight === false && stemLeft + stemWidth / 2 > centerX) {
             ctx.beginPath()
@@ -612,17 +680,17 @@
             ctx.quadraticCurveTo(stemLeft, topBottom, stemLeft - smallR, topBottom)
             ctx.lineTo(topNotchRight, topBottom)
             ctx.bezierCurveTo(
-              topNotchRight - 2.52 * topScaleX,
+              topNotchRight - initialCurves.topNotchControlX,
               topBottom,
-              centerX + 0.27 * topScaleX,
+              centerX + initialCurves.topNotchCenterControlX,
               bottomNotchY,
               centerX,
               bottomNotchY
             )
             ctx.bezierCurveTo(
-              centerX - 0.27 * topScaleX,
+              centerX - initialCurves.topNotchCenterControlX,
               bottomNotchY,
-              topNotchLeft + 2.52 * topScaleX,
+              topNotchLeft + initialCurves.topNotchControlX,
               topBottom,
               topNotchLeft,
               topBottom
@@ -633,17 +701,17 @@
             ctx.quadraticCurveTo(left, top, left + r, top)
             ctx.lineTo(topNotchLeft, top)
             ctx.bezierCurveTo(
-              topNotchLeft + 2.52 * topScaleX,
+              topNotchLeft + initialCurves.topNotchControlX,
               top,
-              centerX - 0.27 * topScaleX,
+              centerX - initialCurves.topNotchCenterControlX,
               topNotchY,
               centerX,
               topNotchY
             )
             ctx.bezierCurveTo(
-              centerX + 0.27 * topScaleX,
+              centerX + initialCurves.topNotchCenterControlX,
               topNotchY,
-              topNotchRight - 2.52 * topScaleX,
+              topNotchRight - initialCurves.topNotchControlX,
               top,
               topNotchRight,
               top
@@ -660,17 +728,17 @@
           ctx.quadraticCurveTo(right, topBottom, right - r, topBottom)
           ctx.lineTo(topNotchRight, topBottom)
           ctx.bezierCurveTo(
-            topNotchRight - 2.52 * topScaleX,
+            topNotchRight - initialCurves.topNotchControlX,
             topBottom,
-            centerX + 0.27 * topScaleX,
+            centerX + initialCurves.topNotchCenterControlX,
             bottomNotchY,
             centerX,
             bottomNotchY
           )
           ctx.bezierCurveTo(
-            centerX - 0.27 * topScaleX,
+            centerX - initialCurves.topNotchCenterControlX,
             bottomNotchY,
-            topNotchLeft + 2.52 * topScaleX,
+            topNotchLeft + initialCurves.topNotchControlX,
             topBottom,
             topNotchLeft,
             topBottom
@@ -700,17 +768,17 @@
           ctx.quadraticCurveTo(left, top, left + r, top)
           ctx.lineTo(topNotchLeft, top)
           ctx.bezierCurveTo(
-            topNotchLeft + 2.52 * topScaleX,
+            topNotchLeft + initialCurves.topNotchControlX,
             top,
-            centerX - 0.27 * topScaleX,
+            centerX - initialCurves.topNotchCenterControlX,
             topNotchY,
             centerX,
             topNotchY
           )
           ctx.bezierCurveTo(
-            centerX + 0.27 * topScaleX,
+            centerX + initialCurves.topNotchCenterControlX,
             topNotchY,
-            topNotchRight - 2.52 * topScaleX,
+            topNotchRight - initialCurves.topNotchControlX,
             top,
             topNotchRight,
             top
@@ -1040,7 +1108,10 @@
             this.minSize = options.minSize
           }
 
+          this.initialCurveMetrics = options.initialCurveMetrics || null
           FJewelryUtils.initializeGeometry(this, options, initW, initH)
+          this.initialCurveMetrics =
+            options.initialCurveMetrics || FJewelryUtils.getInitialCurveMetrics(this)
 
           this.set({
             fill: options.fill != null ? options.fill : '',
@@ -1177,7 +1248,8 @@
               'stemWidth',
               'stemHeight',
               'stemSlotTopY',
-              'stemSlotBottomY'
+              'stemSlotBottomY',
+              'initialCurveMetrics'
             ].concat(additionalProps || [])
           )
         }
@@ -1244,12 +1316,9 @@
       }
 
       function updateFieldLimits() {
-        var metrics = FJewelryUtils.getStemVerticalMetrics(f3.stemHeight)
+        var metrics = FJewelryUtils.getStemVerticalMetricsForTarget(f3)
         var slotMinTop = Math.max(metrics.shoulderDrop, 0)
-        var slotMaxBottom = Math.max(
-          metrics.footTopY,
-          slotMinTop + FJewelryUtils.MIN_STEM_SLOT_HEIGHT
-        )
+        var slotMaxBottom = FJewelryUtils.getStemSlotBottomMax(f3, metrics)
 
         setFieldLimit('topWidth', FJewelryUtils.MIN_SIZE, 420)
         setFieldLimit('topHeight', FJewelryUtils.MIN_TOP_HEIGHT, 260)
